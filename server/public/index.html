@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GunDB Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #333;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .message-input {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 10px;
+    }
+    button {
+      padding: 8px 16px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    #messages {
+      margin-top: 20px;
+      border-top: 1px solid #ddd;
+      padding-top: 10px;
+    }
+    .message {
+      padding: 8px;
+      margin-bottom: 6px;
+      background-color: #f1f1f1;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>GunDB Test</h1>
+    <p>This is a simple test for GunDB server.</p>
+    
+    <div>
+      <input type="text" id="alias" placeholder="Your name" class="message-input">
+      <input type="password" id="password" placeholder="Password" class="message-input">
+      <button id="login">Login</button>
+      <button id="signup">Sign Up</button>
+      <button id="logout">Logout</button>
+      <p id="user-status">Not logged in</p>
+    </div>
+
+    <div>
+      <input type="text" id="messageInput" placeholder="Type a message" class="message-input">
+      <button id="send">Send</button>
+      <div id="messages"></div>
+    </div>
+  </div>
+
+  <script src="/gun/gun.js"></script>
+  <script src="/gun/sea.js"></script>
+  <script>
+    // Initialize Gun
+    const gun = Gun({
+      peers: ['http://localhost:8765/gun'] // Connect to our server
+    });
+    
+    // Get UI elements
+    const messagesDiv = document.getElementById('messages');
+    const messageInput = document.getElementById('messageInput');
+    const sendButton = document.getElementById('send');
+    const aliasInput = document.getElementById('alias');
+    const passwordInput = document.getElementById('password');
+    const loginButton = document.getElementById('login');
+    const signupButton = document.getElementById('signup');
+    const logoutButton = document.getElementById('logout');
+    const userStatus = document.getElementById('user-status');
+
+    // User authentication functions
+    signupButton.addEventListener('click', async () => {
+      const alias = aliasInput.value;
+      const password = passwordInput.value;
+      
+      if (!alias || !password) {
+        alert('Please enter both username and password');
+        return;
+      }
+      
+      try {
+        await new Promise((resolve, reject) => {
+          gun.user().create(alias, password, (ack) => {
+            if (ack.err) {
+              reject(ack.err);
+              return;
+            }
+            resolve();
+          });
+        });
+        
+        alert(`User ${alias} created successfully!`);
+        loginButton.click(); // Auto-login after signup
+      } catch (error) {
+        alert(`Error creating user: ${error}`);
+      }
+    });
+
+    loginButton.addEventListener('click', async () => {
+      const alias = aliasInput.value;
+      const password = passwordInput.value;
+      
+      if (!alias || !password) {
+        alert('Please enter both username and password');
+        return;
+      }
+      
+      try {
+        await new Promise((resolve, reject) => {
+          gun.user().auth(alias, password, (ack) => {
+            if (ack.err) {
+              reject(ack.err);
+              return;
+            }
+            resolve();
+          });
+        });
+        
+        userStatus.textContent = `Logged in as ${alias}`;
+      } catch (error) {
+        alert(`Login failed: ${error}`);
+      }
+    });
+
+    logoutButton.addEventListener('click', () => {
+      gun.user().leave();
+      userStatus.textContent = 'Not logged in';
+    });
+
+    // Message function
+    sendButton.addEventListener('click', async () => {
+      const text = messageInput.value.trim();
+      if (!text) return;
+      
+      const user = gun.user().is;
+      if (!user) {
+        alert('Please login to send messages');
+        return;
+      }
+      
+      const message = {
+        text,
+        sender: user.alias,
+        timestamp: Date.now(),
+      };
+      
+      // Sign the message
+      const signedMessage = await SEA.sign(message, user.pair);
+      
+      // Store the message
+      gun.get('chat').set(signedMessage);
+      
+      messageInput.value = '';
+    });
+
+    // Listen for messages
+    gun.get('chat').map().on(async (data, id) => {
+      if (!data) return;
+      
+      try {
+        // Try to verify the signature
+        const sender = data.sender;
+        if (!sender) return;
+        
+        // Get user's pub key
+        const pubKey = await gun.user(sender).get('pub').once();
+        if (!pubKey) return;
+        
+        // Verify the message
+        const verified = await SEA.verify(data, pubKey);
+        if (!verified) return;
+        
+        // Display the message
+        const div = document.createElement('div');
+        div.className = 'message';
+        div.innerHTML = `
+          <strong>${verified.sender}</strong> (${new Date(verified.timestamp).toLocaleTimeString()}):
+          <br>${verified.text}
+        `;
+        messagesDiv.prepend(div);
+      } catch (error) {
+        console.error('Error processing message:', error);
+      }
+    });
+  </script>
+</body>
+</html>
