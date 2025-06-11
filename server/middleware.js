@@ -8,6 +8,7 @@
 
 // Enhanced blocking function with comprehensive signature detection
 function shouldBlockMessage(msg) {
+    consoloe.log('🔍 Checking message for blocking');
     try {
         if (!msg || !msg.put) {
             return false;
@@ -42,10 +43,42 @@ function shouldBlockMessage(msg) {
 }
 
 function validateIncoming(msg) {
-    console.log('📨 IN =>', Object.keys(msg), 'soul:', msg?.put?.['#'], 'field:', msg?.put?.['.']);
+    var block = false;
+    if (msg && msg.put) {
+        console.log('📨 IN => PUT', 'soul:', msg?.put?.['#'], 'field:', msg?.put?.['.'], msg);
+        const keys = Object.keys(msg.put);
+        
+        keys.forEach(key => {
+            if (key.startsWith('chat/')) {
+                const value = msg.put[key];
+                console.log('🔔 Chat message detected:', key, value);
+                if (value.signature === 'lala') {
+                    block = true
+                }
+            }
+        });
+        if (block) {
+            console.log('🚫 BLOCKED: Chat message detected in incoming PUT');
+            this.to.next({ 
+                '@': msg['#'], 
+                err: 'Chat messages are not allowed in this context',
+                blocked: true 
+            });
+            return;
+        } else {
+            console.log('✅ PUT message validated');
+        }
+    }
+    else {
+        console.log('📨 IN =>', Object.keys(msg));
+    }
+
+    this.to.next(msg);
+    return;
 
     // Skip validation for user authentication messages and system messages
     if (msg?.put && (msg.put['~@'] || msg._)) {
+        console.log('✅ Middleware SKIPPED message - user auth or system message');
         this.to.next(msg);
         return;
     }
